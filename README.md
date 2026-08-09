@@ -63,7 +63,7 @@ cd server
 npm install
 cp .env.example .env   # fill in DATABASE_URL, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, HF_TOKEN
 npx prisma migrate dev # creates tables
-npm run seed             # loads the demo menu + creates the admin account
+npm run seed             # creates the admin account (menu items are added via /admin, not seeded)
 npm run dev
 ```
 
@@ -86,7 +86,7 @@ PlateView/
 │       └── data/menu.ts     # Shared types + fixed category/allergen lists (menu content itself lives in the DB)
 └── server/                # Express + Prisma API
     ├── prisma/schema.prisma
-    ├── prisma/seed.ts       # Loads prisma/seed-data.json + creates the admin account
+    ├── prisma/seed.ts       # Creates the admin account (prisma/seed-data.json is an optional bootstrap list, empty by default)
     └── src/
         ├── routes/menu.ts     # GET /api/menu (public), GET /api/menu/:id/photo|model (binary)
         ├── routes/admin.ts    # login + protected menu CRUD (multipart photo upload) + generate-model
@@ -102,7 +102,7 @@ Items always have a `photoUrl` (an uploaded file served by the API, or an extern
 
 1. On [Render](https://dashboard.render.com), go to **New → Blueprint** and connect this repo.
 2. Render shows a preview of the three resources. You'll be prompted for the secret values marked `sync: false` in `render.yaml`: **`ADMIN_EMAIL`** and **`ADMIN_PASSWORD`** for the restaurant admin's login (pick a real password, it's what you'll use at `/admin/login`), and **`HF_TOKEN`** for AI 3D generation (optional — leave blank and add it later via the service's Environment tab if you don't have one yet; everything except "Generate 3D preview" works without it).
-3. Click **Apply**. The database and API deploy first; the API's start command runs migrations and seeds the demo menu + admin account automatically on every deploy (safe — it's idempotent).
+3. Click **Apply**. The database and API deploy first; the API's start command runs migrations and creates the admin account automatically on every deploy (safe — it's idempotent). Add menu items afterward through `/admin`.
 4. `render.yaml` assumes the static site is named `plateview` and the API `plateview-api` (giving predictable URLs `https://plateview.onrender.com` / `https://plateview-api.onrender.com`, wired into `VITE_API_URL` and `CORS_ORIGIN`). If Render assigns different subdomains because those names are taken, update those two env vars to match and redeploy both services.
 5. The free Postgres and free web service plans are fine for trying this out, but confirm current limits/pricing on Render before relying on them (free databases are typically time-limited; free web services cold-start after inactivity).
 
