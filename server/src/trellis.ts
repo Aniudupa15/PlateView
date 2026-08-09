@@ -1,4 +1,5 @@
 import { Client, handle_file } from '@gradio/client'
+import { getHfTokens } from './hfTokens.js'
 
 // trellis-community/TRELLIS -- Microsoft's TRELLIS (CVPR'25), free on Hugging
 // Face's ZeroGPU quota. Meaningfully better output than TripoSR (proper quad
@@ -46,14 +47,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   })
 }
 
-function apiToken(): string {
-  const token = process.env.HF_TOKEN
-  if (!token) {
-    throw new ModelGenerationError('HF_TOKEN is not configured on the server')
-  }
-  return token
-}
-
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
@@ -68,17 +61,42 @@ function extractFileUrl(value: unknown): string | undefined {
 
 /** Generates a model from one or more photos. Multiple photos (e.g. frames
  * extracted from a walk-around video) give TRELLIS real multi-angle
- * geometry instead of having to guess unseen surfaces. */
-export function generateModelFromImages(images: Buffer[]): Promise<Buffer> {
+ * geometry instead of having to guess unseen surfaces.
+ *
+ * Rotates across every HF_TOKEN* configured on the server -- each Hugging
+ * Face account has its own separate free ZeroGPU quota, so a quota error on
+ * one account just moves on to the next rather than failing outright. */
+export async function generateModelFromImages(images: Buffer[]): Promise<Buffer> {
   if (images.length === 0) {
-    return Promise.reject(new ModelGenerationError('At least one image is required'))
+    throw new ModelGenerationError('At least one image is required')
   }
-  return withTimeout(generate(images), GENERATION_TIMEOUT_MS, 'TRELLIS model generation')
+
+  const tokens = getHfTokens()
+  if (tokens.length === 0) {
+    throw new ModelGenerationError('HF_TOKEN is not configured on the server')
+  }
+
+  let lastQuotaError: QuotaExceededError | null = null
+  for (const token of tokens) {
+    try {
+      return await withTimeout(generate(images, token), GENERATION_TIMEOUT_MS, 'TRELLIS model generation')
+    } catch (err) {
+      if (err instanceof QuotaExceededError) {
+        lastQuotaError = err
+        continue // this account's quota is spent -- try the next one
+      }
+      throw err
+    }
+  }
+
+  throw new QuotaExceededError(
+    tokens.length > 1
+      ? `All ${tokens.length} configured Hugging Face accounts have used up their free daily TRELLIS quota for today. Use the standard option instead, or try again tomorrow.`
+      : (lastQuotaError?.message ?? 'TRELLIS quota exhausted'),
+  )
 }
 
-async function generate(images: Buffer[]): Promise<Buffer> {
-  const token = apiToken()
-
+async function generate(images: Buffer[], token: string): Promise<Buffer> {
   let client: Client
   try {
     client = await Client.connect(SPACE, { token: token as `hf_${string}` })

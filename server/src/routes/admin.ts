@@ -4,8 +4,16 @@ import { requireAuth, signToken, verifyPassword } from '../auth.js'
 import { loginSchema, menuItemInputSchema, menuItemUpdateSchema } from '../validation.js'
 import { uploadPhoto, uploadVideo } from '../upload.js'
 import { publicOrigin } from '../publicUrl.js'
-import { generateModelFromImageBuffer, ModelGenerationError as TripoSRError } from '../hf.js'
-import { generateModelFromImages, ModelGenerationError as TrellisError, QuotaExceededError } from '../trellis.js'
+import {
+  generateModelFromImageBuffer,
+  ModelGenerationError as TripoSRError,
+  QuotaExceededError as TripoSRQuotaError,
+} from '../hf.js'
+import {
+  generateModelFromImages,
+  ModelGenerationError as TrellisError,
+  QuotaExceededError as TrellisQuotaError,
+} from '../trellis.js'
 import { extractFrames, VideoProcessingError } from '../videoFrames.js'
 
 export const adminRouter = Router()
@@ -159,7 +167,7 @@ adminRouter.post('/menu/:id/generate-model', uploadVideo, async (req, res) => {
     })
     res.json(updated)
   } catch (err) {
-    if (err instanceof QuotaExceededError) {
+    if (err instanceof TrellisQuotaError || err instanceof TripoSRQuotaError) {
       res.status(429).json({ error: err.message })
       return
     }

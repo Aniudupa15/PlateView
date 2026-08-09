@@ -1,4 +1,5 @@
 import { Client, handle_file } from '@gradio/client'
+import { getHfTokens } from './hfTokens.js'
 
 // stabilityai/TripoSR — Stability AI's official public Space running the
 // open-source (MIT) TripoSR model on Hugging Face's free "ZeroGPU" quota.
@@ -22,6 +23,7 @@ const MC_RESOLUTION = 256
 const GENERATION_TIMEOUT_MS = 3 * 60 * 1000
 
 export class ModelGenerationError extends Error {}
+export class QuotaExceededError extends ModelGenerationError {}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -42,22 +44,15 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   })
 }
 
-function apiToken(): string {
-  const token = process.env.HF_TOKEN
-  if (!token) {
-    throw new ModelGenerationError('HF_TOKEN is not configured on the server')
-  }
-  return token
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
-async function connect(): Promise<Client> {
-  const token = apiToken()
+async function connect(token: string): Promise<Client> {
   try {
     return await Client.connect(SPACE, { token: token as `hf_${string}` })
   } catch (err) {
-    throw new ModelGenerationError(
-      `Could not connect to the 3D generation service: ${err instanceof Error ? err.message : String(err)}`,
-    )
+    throw new ModelGenerationError(`Could not connect to the 3D generation service: ${errorMessage(err)}`)
   }
 }
 
@@ -70,17 +65,40 @@ function extractFileUrl(value: unknown): string | undefined {
   return undefined
 }
 
-export function generateModelFromImageBuffer(photo: Buffer): Promise<Buffer> {
-  return withTimeout(generate(photo), GENERATION_TIMEOUT_MS, 'Model generation')
+/** Rotates across every HF_TOKEN* configured on the server, same as
+ * trellis.ts -- TripoSR rarely hits its (much cheaper) ZeroGPU quota, but
+ * this keeps behavior consistent if it ever does. */
+export async function generateModelFromImageBuffer(photo: Buffer): Promise<Buffer> {
+  const tokens = getHfTokens()
+  if (tokens.length === 0) {
+    throw new ModelGenerationError('HF_TOKEN is not configured on the server')
+  }
+
+  for (const token of tokens) {
+    try {
+      return await withTimeout(generate(photo, token), GENERATION_TIMEOUT_MS, 'Model generation')
+    } catch (err) {
+      if (err instanceof QuotaExceededError) continue
+      throw err
+    }
+  }
+
+  throw new QuotaExceededError(
+    tokens.length > 1
+      ? `All ${tokens.length} configured Hugging Face accounts have used up their free daily quota for today. Try again tomorrow.`
+      : 'Free daily quota is used up for today. Try again tomorrow.',
+  )
 }
 
-async function generate(photo: Buffer): Promise<Buffer> {
-  const preprocessClient = await connect()
-  const preprocessed = await preprocessClient
-    .predict('/preprocess', [handle_file(photo), true, FOREGROUND_RATIO])
-    .catch((err: unknown) => {
-      throw new ModelGenerationError(`Preprocessing step failed: ${err instanceof Error ? err.message : String(err)}`)
-    })
+async function generate(photo: Buffer, token: string): Promise<Buffer> {
+  const preprocessClient = await connect(token)
+  const preprocessed = await preprocessClient.predict('/preprocess', [handle_file(photo), true, FOREGROUND_RATIO]).catch(
+    (err: unknown) => {
+      const message = errorMessage(err)
+      if (/quota|zerogpu/i.test(message)) throw new QuotaExceededError(message)
+      throw new ModelGenerationError(`Preprocessing step failed: ${message}`)
+    },
+  )
 
   const processedImageUrl = extractFileUrl((preprocessed.data as unknown[])?.[0])
   if (!processedImageUrl) {
@@ -88,12 +106,14 @@ async function generate(photo: Buffer): Promise<Buffer> {
   }
 
   // A fresh client is required here -- see the module comment above.
-  const generateClient = await connect()
-  const generated = await generateClient
-    .predict('/generate', [handle_file(processedImageUrl), MC_RESOLUTION])
-    .catch((err: unknown) => {
-      throw new ModelGenerationError(`Generation step failed: ${err instanceof Error ? err.message : String(err)}`)
-    })
+  const generateClient = await connect(token)
+  const generated = await generateClient.predict('/generate', [handle_file(processedImageUrl), MC_RESOLUTION]).catch(
+    (err: unknown) => {
+      const message = errorMessage(err)
+      if (/quota|zerogpu/i.test(message)) throw new QuotaExceededError(message)
+      throw new ModelGenerationError(`Generation step failed: ${message}`)
+    },
+  )
 
   const outputs = generated.data as unknown[]
   // outputs = [objModel, glbModel]

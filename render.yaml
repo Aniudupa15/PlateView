@@ -41,3 +41,18 @@ services:
         sync: false
       - key: HF_TOKEN
         sync: false
+      # Optional: add tokens from additional free Hugging Face accounts to
+      # multiply the daily TRELLIS quota (each account gets its own ~3.5-5
+      # min/day budget). The server automatically rotates across whichever
+      # of these are actually set -- HF_TOKEN_2 alone works fine, no need to
+      # fill every slot. Add via this service's Environment tab; a plain
+      # `git push` won't prompt for new sync:false vars on an existing
+      # service the way the initial Blueprint apply did.
+      - key: HF_TOKEN_2
+        sync: false
+      - key: HF_TOKEN_3
+        sync: false
+      - key: HF_TOKEN_4
+        sync: false
+      - key: HF_TOKEN_5
+        sync: false
