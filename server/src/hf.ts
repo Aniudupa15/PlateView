@@ -5,8 +5,28 @@ import { Client, handle_file } from '@gradio/client'
 // Not an official product/SLA, so this can be slower or occasionally
 // unavailable compared to a paid API.
 const SPACE = 'stabilityai/TripoSR'
+const GENERATION_TIMEOUT_MS = 3 * 60 * 1000
 
 export class ModelGenerationError extends Error {}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new ModelGenerationError(`${label} timed out after ${Math.round(ms / 1000)}s`)),
+      ms,
+    )
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (err: unknown) => {
+        clearTimeout(timer)
+        reject(err)
+      },
+    )
+  })
+}
 
 function apiToken(): string {
   const token = process.env.HF_TOKEN
@@ -25,7 +45,11 @@ function extractFileUrl(value: unknown): string | undefined {
   return undefined
 }
 
-export async function generateModelFromImageUrl(imageUrl: string): Promise<Buffer> {
+export function generateModelFromImageUrl(imageUrl: string): Promise<Buffer> {
+  return withTimeout(generate(imageUrl), GENERATION_TIMEOUT_MS, 'Model generation')
+}
+
+async function generate(imageUrl: string): Promise<Buffer> {
   const token = apiToken()
 
   let client: Client
