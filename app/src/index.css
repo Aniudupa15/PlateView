@@ -500,6 +500,15 @@ button {
   color: var(--navy);
 }
 
+.admin-3d-hq {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
 .admin-form-actions {
   display: flex;
   gap: 10px;

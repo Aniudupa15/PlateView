@@ -15,7 +15,10 @@ Deployed on [Render](https://render.com) — see [Deployment](#deployment) below
 - **Photo fallback** — items without a 3D asset yet just show a high-quality photo. Nothing is ever blocked on missing 3D content.
 - **Restaurant admin dashboard** (`/admin`) — a password-protected screen for the restaurant owner/manager to add dishes, edit them, 86 (mark unavailable) or restore them, and delete them.
 - **Photo upload** — dish photos are uploaded as real image files (JPEG/PNG/WebP, stored in Postgres), not pasted URLs.
-- **AI-generated 3D previews** — from a dish's edit screen, "Generate 3D preview from photo" sends the uploaded photo to [TripoSR](https://huggingface.co/spaces/stabilityai/TripoSR) (open-source, MIT-licensed) running on Hugging Face's free Space hosting, downloads the resulting `.glb`, and stores it on the item — no manual 3D modeling required. This is a free community-hosted demo rather than a commercial API, so generation can be slower or occasionally unavailable — there's no uptime guarantee behind it.
+- **AI-generated 3D previews, two tiers** — from a dish's edit screen:
+  - **Standard**: sends the uploaded photo to [TripoSR](https://huggingface.co/spaces/stabilityai/TripoSR) (open-source, MIT-licensed) on Hugging Face, no practical daily limit, ~5-15s per generation.
+  - **High quality**: sends either the current photo or a short walk-around video (frames auto-extracted server-side and fed as multi-image input) to [TRELLIS](https://huggingface.co/spaces/trellis-community/TRELLIS) (Microsoft, CVPR'25) — proper quad topology and PBR materials instead of TripoSR's vertex-color mesh, and multi-image input gives it real geometry instead of guessing unseen angles. The catch: it costs ~120s of Hugging Face's shared free "ZeroGPU" quota per generation, against a daily account-wide budget of only ~3.5-5 minutes — roughly **1-2 free generations per day**. Fails with a clear "quota used up" message rather than hanging; use Standard the rest of the day.
+  Both download the resulting `.glb` and store it on the item — no manual 3D modeling required. These run on free community Space hosting rather than a commercial API, so expect occasional slowness or unavailability — there's no uptime guarantee behind either.
 
 ## What's not built yet
 
@@ -31,7 +34,8 @@ Per the [phased roadmap](./PLATEV_1.pdf) (§9): cart/ordering, shared table cart
 | Database / ORM | PostgreSQL + Prisma |
 | Auth | JWT (bcrypt-hashed password, single admin account) |
 | Photo/model storage | Postgres (`bytea`), served through the API |
-| AI 3D generation | [TripoSR](https://huggingface.co/spaces/stabilityai/TripoSR) via [`@gradio/client`](https://www.npmjs.com/package/@gradio/client), free (Hugging Face account + token, no card) |
+| AI 3D generation | [TripoSR](https://huggingface.co/spaces/stabilityai/TripoSR) (standard) + [TRELLIS](https://huggingface.co/spaces/trellis-community/TRELLIS) (high quality) via [`@gradio/client`](https://www.npmjs.com/package/@gradio/client), free (Hugging Face account + token, no card) |
+| Video frame extraction | [`ffmpeg-static`](https://www.npmjs.com/package/ffmpeg-static) (bundled binary, no system ffmpeg needed) |
 | Linting | Oxlint |
 
 ## Getting started
@@ -90,8 +94,10 @@ PlateView/
     └── src/
         ├── routes/menu.ts     # GET /api/menu (public), GET /api/menu/:id/photo|model (binary)
         ├── routes/admin.ts    # login + protected menu CRUD (multipart photo upload) + generate-model
-        ├── hf.ts                # Calls TripoSR on Hugging Face Spaces (@gradio/client) and downloads the .glb
-        └── upload.ts            # multer config (JPEG/PNG/WebP, 8MB limit)
+        ├── hf.ts                # Standard tier: TripoSR on Hugging Face Spaces
+        ├── trellis.ts            # High-quality tier: TRELLIS, single- or multi-image, session-stateful
+        ├── videoFrames.ts        # Extracts ~6 evenly-spaced frames from an uploaded video via ffmpeg
+        └── upload.ts            # multer config (photo: JPEG/PNG/WebP 8MB; video: MP4/MOV/WebM 50MB)
 ```
 
 Items always have a `photoUrl` (an uploaded file served by the API, or an external URL for the seeded demo dishes). `modelUrl` is optional — set automatically when an admin generates a 3D preview; items without one fall back to the photo.

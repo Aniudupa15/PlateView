@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { ALL_ALLERGENS, CATEGORIES, DIETARY_TAGS, type DietaryTag, type MenuItem, type SpiceLevel } from '../../data/menu'
 import { ArViewer } from '../../components/ArViewer'
-import type { MenuItemPatchFields, NewMenuItemFields } from '../../api'
+import type { MenuItemPatchFields, ModelEngine, NewMenuItemFields } from '../../api'
 
 const SPICE_OPTIONS: { value: SpiceLevel; label: string }[] = [
   { value: 0, label: 'None' },
@@ -16,7 +16,7 @@ interface MenuItemFormProps {
   initial?: MenuItem
   submitLabel: string
   onSubmit: (fields: NewMenuItemFields | MenuItemPatchFields, photo: File | null) => Promise<void>
-  onGenerateModel?: () => Promise<void>
+  onGenerateModel?: (engine: ModelEngine, video?: File) => Promise<void>
   generating?: boolean
   generateError?: string | null
   onCancel?: () => void
@@ -49,6 +49,7 @@ export function MenuItemForm({
   const [values, setValues] = useState<FieldValues>(initial ?? emptyValues())
   const [photo, setPhoto] = useState<File | null>(null)
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null)
+  const [genVideo, setGenVideo] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const isEdit = Boolean(initial)
@@ -221,17 +222,39 @@ export function MenuItemForm({
           {initial?.modelUrl ? (
             <ArViewer modelUrl={initial.modelUrl} posterUrl={initial.photoUrl} alt={initial.name} />
           ) : (
-            <p className="admin-hint">No 3D preview yet — generate one from the current photo.</p>
+            <p className="admin-hint">No 3D preview yet — generate one below.</p>
           )}
           {onGenerateModel && (
-            <button
-              type="button"
-              className="admin-button admin-button-secondary"
-              onClick={onGenerateModel}
-              disabled={generating}
-            >
-              {generating ? 'Generating… (can take up to a couple minutes)' : 'Generate 3D preview from photo'}
-            </button>
+            <>
+              <button
+                type="button"
+                className="admin-button admin-button-secondary"
+                onClick={() => onGenerateModel('triposr')}
+                disabled={generating}
+              >
+                {generating ? 'Generating…' : 'Generate 3D preview from photo'}
+              </button>
+
+              <div className="admin-3d-hq">
+                <span className="admin-hint">
+                  Higher quality, from a short walk-around video of the dish (optional — falls back to the current
+                  photo if you skip this). Limited to ~1-2 free generations per day.
+                </span>
+                <input
+                  type="file"
+                  accept="video/mp4,video/quicktime,video/webm"
+                  onChange={(e) => setGenVideo(e.target.files?.[0] ?? null)}
+                />
+                <button
+                  type="button"
+                  className="admin-button admin-button-secondary"
+                  onClick={() => onGenerateModel('trellis', genVideo ?? undefined)}
+                  disabled={generating}
+                >
+                  {generating ? 'Generating…' : 'Generate high-quality preview'}
+                </button>
+              </div>
+            </>
           )}
           {generateError && <p className="admin-error">{generateError}</p>}
         </div>

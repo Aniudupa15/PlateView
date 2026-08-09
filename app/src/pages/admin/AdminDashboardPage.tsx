@@ -9,6 +9,7 @@ import {
   generateModel,
   updateMenuItem,
   type MenuItemPatchFields,
+  type ModelEngine,
   type NewMenuItemFields,
 } from '../../api'
 import { clearAdminToken, getAdminToken } from '../../adminAuth'
@@ -71,16 +72,20 @@ export function AdminDashboardPage() {
     await load()
   }
 
-  async function handleGenerateModel(id: string) {
+  async function handleGenerateModel(id: string, engine: ModelEngine, video?: File) {
     const token = getAdminToken()
     if (!token) return
     setGeneratingId(id)
     setGenerateError(null)
     try {
-      await generateModel(token, id)
+      await generateModel(token, id, engine, video)
       await load()
-    } catch {
-      setGenerateError({ id, message: 'Could not generate a 3D preview. Try again in a moment.' })
+    } catch (err) {
+      const message =
+        err instanceof ApiError && err.status === 429
+          ? JSON.parse(err.message)
+          : 'Could not generate a 3D preview. Try again in a moment.'
+      setGenerateError({ id, message })
     } finally {
       setGeneratingId(null)
     }
@@ -185,7 +190,7 @@ export function AdminDashboardPage() {
                           initial={item}
                           submitLabel="Save changes"
                           onSubmit={(fields, photo) => handleUpdate(item.id, fields, photo)}
-                          onGenerateModel={() => handleGenerateModel(item.id)}
+                          onGenerateModel={(engine, video) => handleGenerateModel(item.id, engine, video)}
                           generating={generatingId === item.id}
                           generateError={generateError?.id === item.id ? generateError.message : null}
                           onCancel={() => setEditingId(null)}

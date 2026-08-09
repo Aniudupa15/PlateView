@@ -84,9 +84,22 @@ export function deleteMenuItem(token: string, id: string): Promise<void> {
   })
 }
 
-export function generateModel(token: string, id: string): Promise<MenuItem> {
-  return request(`/api/admin/menu/${encodeURIComponent(id)}/generate-model`, {
+export type ModelEngine = 'triposr' | 'trellis'
+
+export function generateModel(
+  token: string,
+  id: string,
+  engine: ModelEngine = 'triposr',
+  video?: File,
+): Promise<MenuItem> {
+  let body: FormData | undefined
+  if (video) {
+    body = new FormData()
+    body.set('video', video)
+  }
+  return request(`/api/admin/menu/${encodeURIComponent(id)}/generate-model?engine=${engine}`, {
     method: 'POST',
     headers: authHeaders(token),
+    body,
   })
 }

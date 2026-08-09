@@ -2,9 +2,11 @@ import { Router } from 'express'
 import { prisma } from '../db.js'
 import { requireAuth, signToken, verifyPassword } from '../auth.js'
 import { loginSchema, menuItemInputSchema, menuItemUpdateSchema } from '../validation.js'
-import { uploadPhoto } from '../upload.js'
+import { uploadPhoto, uploadVideo } from '../upload.js'
 import { publicOrigin } from '../publicUrl.js'
-import { generateModelFromImageBuffer, ModelGenerationError } from '../hf.js'
+import { generateModelFromImageBuffer, ModelGenerationError as TripoSRError } from '../hf.js'
+import { generateModelFromImages, ModelGenerationError as TrellisError, QuotaExceededError } from '../trellis.js'
+import { extractFrames, VideoProcessingError } from '../videoFrames.js'
 
 export const adminRouter = Router()
 
@@ -125,7 +127,7 @@ adminRouter.delete('/menu/:id', async (req, res) => {
   }
 })
 
-adminRouter.post('/menu/:id/generate-model', async (req, res) => {
+adminRouter.post('/menu/:id/generate-model', uploadVideo, async (req, res) => {
   const item = await prisma.menuItem.findUnique({ where: { id: req.params.id as string } })
   if (!item) {
     res.status(404).json({ error: 'Item not found' })
@@ -136,8 +138,17 @@ adminRouter.post('/menu/:id/generate-model', async (req, res) => {
     return
   }
 
+  const engine = req.query.engine === 'trellis' ? 'trellis' : 'triposr'
+
   try {
-    const glb = await generateModelFromImageBuffer(Buffer.from(item.photoData))
+    let glb: Buffer
+    if (engine === 'trellis') {
+      const images = req.file ? await extractFrames(req.file.buffer) : [Buffer.from(item.photoData)]
+      glb = await generateModelFromImages(images)
+    } else {
+      glb = await generateModelFromImageBuffer(Buffer.from(item.photoData))
+    }
+
     const updated = await prisma.menuItem.update({
       where: { id: item.id },
       data: {
@@ -148,7 +159,14 @@ adminRouter.post('/menu/:id/generate-model', async (req, res) => {
     })
     res.json(updated)
   } catch (err) {
-    const message = err instanceof ModelGenerationError ? err.message : 'Model generation failed unexpectedly'
-    res.status(502).json({ error: message })
+    if (err instanceof QuotaExceededError) {
+      res.status(429).json({ error: err.message })
+      return
+    }
+    if (err instanceof TripoSRError || err instanceof TrellisError || err instanceof VideoProcessingError) {
+      res.status(502).json({ error: err.message })
+      return
+    }
+    res.status(502).json({ error: 'Model generation failed unexpectedly' })
   }
 })
