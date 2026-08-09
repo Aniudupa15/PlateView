@@ -4,7 +4,15 @@ import { Client, handle_file } from '@gradio/client'
 // open-source (MIT) TripoSR model on Hugging Face's free "ZeroGPU" quota.
 // Not an official product/SLA, so this can be slower or occasionally
 // unavailable compared to a paid API.
+//
+// Calls /generate directly with the photo URL (matching the Space's own
+// "View API" example) rather than chaining /preprocess's output into it --
+// passing that intermediate object back in silently hung with zero events,
+// even though /preprocess itself completed in ~1s. Calling /generate
+// standalone with a fresh image reference completes in seconds, same as
+// using the Space's own web UI.
 const SPACE = 'stabilityai/TripoSR'
+const MC_RESOLUTION = 256
 const GENERATION_TIMEOUT_MS = 3 * 60 * 1000
 
 export class ModelGenerationError extends Error {}
@@ -61,20 +69,11 @@ async function generate(imageUrl: string): Promise<Buffer> {
     )
   }
 
-  const preprocessed = await client
-    .predict('/preprocess', [handle_file(imageUrl), true, 0.85])
+  const generated = await client
+    .predict('/generate', [handle_file(imageUrl), MC_RESOLUTION])
     .catch((err: unknown) => {
-      throw new ModelGenerationError(`Preprocessing step failed: ${err instanceof Error ? err.message : String(err)}`)
+      throw new ModelGenerationError(`Generation step failed: ${err instanceof Error ? err.message : String(err)}`)
     })
-
-  const processedImage = preprocessed.data && (preprocessed.data as unknown[])[0]
-  if (!processedImage) {
-    throw new ModelGenerationError('Preprocessing step returned no image')
-  }
-
-  const generated = await client.predict('/generate', [processedImage, 256]).catch((err: unknown) => {
-    throw new ModelGenerationError(`Generation step failed: ${err instanceof Error ? err.message : String(err)}`)
-  })
 
   const outputs = generated.data as unknown[]
   // outputs = [objModel, glbModel]
