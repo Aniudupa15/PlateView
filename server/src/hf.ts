@@ -6,11 +6,16 @@ import { Client, handle_file } from '@gradio/client'
 // unavailable compared to a paid API.
 //
 // Runs the Space's own two-step pipeline: /preprocess (background removal)
-// then /generate. The real bug when this was first wired up wasn't the file
-// reference at all -- it was reusing the same Client/session across both
-// calls, which made /generate hang with zero events, ever. A fresh
-// Client.connect() for the /generate call fixes it; both steps together
-// take ~10-15s, same as the Space's own web UI.
+// then /generate. Two real bugs found here, both confirmed by direct
+// inspection of the resulting glb's vertex color data, not guesswork:
+//  1. Reusing the same Client/session across /preprocess and /generate made
+//     /generate hang with zero events, ever. A fresh Client.connect() per
+//     call fixes it.
+//  2. Passing the *URL* of our own served photo into /preprocess (instead of
+//     the raw image bytes) consistently produced a mesh where ~85% of
+//     vertices were near-black -- a different, worse mesh topology than
+//     passing the same photo as raw bytes. Passing a Buffer directly (which
+//     we already have from the DB, no extra fetch needed) fixes it.
 const SPACE = 'stabilityai/TripoSR'
 const FOREGROUND_RATIO = 0.85
 const MC_RESOLUTION = 256
@@ -65,14 +70,14 @@ function extractFileUrl(value: unknown): string | undefined {
   return undefined
 }
 
-export function generateModelFromImageUrl(imageUrl: string): Promise<Buffer> {
-  return withTimeout(generate(imageUrl), GENERATION_TIMEOUT_MS, 'Model generation')
+export function generateModelFromImageBuffer(photo: Buffer): Promise<Buffer> {
+  return withTimeout(generate(photo), GENERATION_TIMEOUT_MS, 'Model generation')
 }
 
-async function generate(imageUrl: string): Promise<Buffer> {
+async function generate(photo: Buffer): Promise<Buffer> {
   const preprocessClient = await connect()
   const preprocessed = await preprocessClient
-    .predict('/preprocess', [handle_file(imageUrl), true, FOREGROUND_RATIO])
+    .predict('/preprocess', [handle_file(photo), true, FOREGROUND_RATIO])
     .catch((err: unknown) => {
       throw new ModelGenerationError(`Preprocessing step failed: ${err instanceof Error ? err.message : String(err)}`)
     })

@@ -4,7 +4,7 @@ import { requireAuth, signToken, verifyPassword } from '../auth.js'
 import { loginSchema, menuItemInputSchema, menuItemUpdateSchema } from '../validation.js'
 import { uploadPhoto } from '../upload.js'
 import { publicOrigin } from '../publicUrl.js'
-import { generateModelFromImageUrl, ModelGenerationError } from '../hf.js'
+import { generateModelFromImageBuffer, ModelGenerationError } from '../hf.js'
 
 export const adminRouter = Router()
 
@@ -131,9 +131,13 @@ adminRouter.post('/menu/:id/generate-model', async (req, res) => {
     res.status(404).json({ error: 'Item not found' })
     return
   }
+  if (!item.photoData) {
+    res.status(400).json({ error: 'This item has no uploaded photo to generate a model from' })
+    return
+  }
 
   try {
-    const glb = await generateModelFromImageUrl(item.photoUrl)
+    const glb = await generateModelFromImageBuffer(Buffer.from(item.photoData))
     const updated = await prisma.menuItem.update({
       where: { id: item.id },
       data: {
