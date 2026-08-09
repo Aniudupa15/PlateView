@@ -1,18 +1,30 @@
 import { Link, useParams } from 'react-router-dom'
-import { MENU_ITEMS } from '../data/menu'
+import { useMenu } from '../context/useMenu'
 import { ArViewer } from '../components/ArViewer'
 
 export function ItemPage() {
   const { itemId } = useParams()
-  const item = MENU_ITEMS.find((i) => i.id === itemId)
+  const { items: menuItems, loading, error } = useMenu()
+  const item = menuItems.find((i) => i.id === itemId)
 
-  if (!item) {
+  if (loading) {
     return (
       <div className="item-page">
         <Link to="/" className="back-link">
           &larr; Back to menu
         </Link>
-        <p>Item not found.</p>
+        <p>Loading&hellip;</p>
+      </div>
+    )
+  }
+
+  if (error || !item) {
+    return (
+      <div className="item-page">
+        <Link to="/" className="back-link">
+          &larr; Back to menu
+        </Link>
+        <p>{error ?? 'Item not found.'}</p>
       </div>
     )
   }

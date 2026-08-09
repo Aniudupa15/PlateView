@@ -1,0 +1,32 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Admin {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+model MenuItem {
+  id              String   @id
+  name            String
+  category        String
+  description     String
+  price           Float
+  prepTimeMinutes Int
+  dietaryTags     String[]
+  allergens       String[]
+  spiceLevel      Int
+  photoUrl        String
+  modelUrl        String?
+  available       Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}

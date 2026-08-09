@@ -3,18 +3,20 @@ import { SearchBar } from '../components/SearchBar'
 import { CategoryTabs } from '../components/CategoryTabs'
 import { FilterBar, type FilterState } from '../components/FilterBar'
 import { MenuItemCard } from '../components/MenuItemCard'
-import { CATEGORIES, MENU_ITEMS } from '../data/menu'
+import { CATEGORIES, type MenuItem } from '../data/menu'
+import { useMenu } from '../context/useMenu'
 
 const EMPTY_FILTERS: FilterState = { dietary: [], excludeAllergens: [], maxSpice: null }
 
 export function MenuPage() {
+  const { items: menuItems, loading, error } = useMenu()
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState<string>('All')
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS)
 
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase()
-    return MENU_ITEMS.filter((item) => {
+    return menuItems.filter((item) => {
       if (category !== 'All' && item.category !== category) return false
       if (query && !item.name.toLowerCase().includes(query) && !item.description.toLowerCase().includes(query)) {
         return false
@@ -24,10 +26,10 @@ export function MenuPage() {
       if (filters.maxSpice !== null && item.spiceLevel > filters.maxSpice) return false
       return true
     })
-  }, [search, category, filters])
+  }, [menuItems, search, category, filters])
 
   const itemsByCategory = useMemo(() => {
-    const groups = new Map<string, typeof MENU_ITEMS>()
+    const groups = new Map<string, MenuItem[]>()
     for (const cat of CATEGORIES) {
       const items = filteredItems.filter((item) => item.category === cat)
       if (items.length > 0) groups.set(cat, items)
@@ -48,7 +50,11 @@ export function MenuPage() {
         <FilterBar filters={filters} onChange={setFilters} />
       </div>
 
-      {filteredItems.length === 0 ? (
+      {loading ? (
+        <p className="empty-state">Loading the menu&hellip;</p>
+      ) : error ? (
+        <p className="empty-state">{error}</p>
+      ) : filteredItems.length === 0 ? (
         <p className="empty-state">No dishes match your filters. Try clearing a filter.</p>
       ) : (
         Array.from(itemsByCategory.entries()).map(([cat, items]) => (
