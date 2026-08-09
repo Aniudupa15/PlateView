@@ -4,7 +4,7 @@ import { requireAuth, signToken, verifyPassword } from '../auth.js'
 import { loginSchema, menuItemInputSchema, menuItemUpdateSchema } from '../validation.js'
 import { uploadPhoto } from '../upload.js'
 import { publicOrigin } from '../publicUrl.js'
-import { generateModelFromImageUrl, ModelGenerationError } from '../meshy.js'
+import { generateModelFromImageUrl, ModelGenerationError } from '../hf.js'
 
 export const adminRouter = Router()
 

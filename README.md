@@ -15,7 +15,7 @@ Deployed on [Render](https://render.com) — see [Deployment](#deployment) below
 - **Photo fallback** — items without a 3D asset yet just show a high-quality photo. Nothing is ever blocked on missing 3D content.
 - **Restaurant admin dashboard** (`/admin`) — a password-protected screen for the restaurant owner/manager to add dishes, edit them, 86 (mark unavailable) or restore them, and delete them.
 - **Photo upload** — dish photos are uploaded as real image files (JPEG/PNG/WebP, stored in Postgres), not pasted URLs.
-- **AI-generated 3D previews** — from a dish's edit screen, "Generate 3D preview from photo" sends the uploaded photo to [Meshy](https://meshy.ai)'s image-to-3D API, downloads the resulting `.glb`, and stores it on the item — no manual 3D modeling required.
+- **AI-generated 3D previews** — from a dish's edit screen, "Generate 3D preview from photo" sends the uploaded photo to [TripoSR](https://huggingface.co/spaces/stabilityai/TripoSR) (open-source, MIT-licensed) running on Hugging Face's free Space hosting, downloads the resulting `.glb`, and stores it on the item — no manual 3D modeling required. This is a free community-hosted demo rather than a commercial API, so generation can be slower or occasionally unavailable — there's no uptime guarantee behind it.
 
 ## What's not built yet
 
@@ -31,7 +31,7 @@ Per the [phased roadmap](./PLATEV_1.pdf) (§9): cart/ordering, shared table cart
 | Database / ORM | PostgreSQL + Prisma |
 | Auth | JWT (bcrypt-hashed password, single admin account) |
 | Photo/model storage | Postgres (`bytea`), served through the API |
-| AI 3D generation | [Meshy](https://meshy.ai) image-to-3D API (free tier: 100 credits/month, no card required, good for a few generations) |
+| AI 3D generation | [TripoSR](https://huggingface.co/spaces/stabilityai/TripoSR) via [`@gradio/client`](https://www.npmjs.com/package/@gradio/client), free (Hugging Face account + token, no card) |
 | Linting | Oxlint |
 
 ## Getting started
@@ -61,7 +61,7 @@ Requires a Postgres instance (e.g. `docker run -d -e POSTGRES_USER=plateview -e 
 ```bash
 cd server
 npm install
-cp .env.example .env   # fill in DATABASE_URL, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, MESHY_API_KEY
+cp .env.example .env   # fill in DATABASE_URL, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, HF_TOKEN
 npx prisma migrate dev # creates tables
 npm run seed             # loads the demo menu + creates the admin account
 npm run dev
@@ -69,7 +69,7 @@ npm run dev
 
 The frontend defaults to `http://localhost:4000` for the API (override with `VITE_API_URL` in `app/.env`). Sign in at `/admin/login` with the `ADMIN_EMAIL` / `ADMIN_PASSWORD` you set in `server/.env`.
 
-`MESHY_API_KEY` is optional — without it, everything works except the "Generate 3D preview" button, which fails with a clear error instead of crashing. Get a free key at [meshy.ai](https://www.meshy.ai/api) (no card required); the free tier is ~100 credits/month, enough for a handful of generations. Note that Meshy needs to fetch the dish photo over the public internet, so generation only works once an item (with its photo) is reachable at a real public URL — it won't work against `localhost` unless you tunnel it (e.g. ngrok).
+`HF_TOKEN` is optional — without it, everything works except the "Generate 3D preview" button, which fails with a clear error instead of crashing. Get a free token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) (a free account, no card, a read-level token is enough). Note the Space needs to fetch the dish photo over the public internet, so generation only works once an item (with its photo) is reachable at a real public URL — it won't work against `localhost` unless you tunnel it (e.g. ngrok). Since this runs on a free community demo Space rather than a paid API, expect it to occasionally be slow or briefly unavailable.
 
 ## Project structure
 
@@ -90,7 +90,7 @@ PlateView/
     └── src/
         ├── routes/menu.ts     # GET /api/menu (public), GET /api/menu/:id/photo|model (binary)
         ├── routes/admin.ts    # login + protected menu CRUD (multipart photo upload) + generate-model
-        ├── meshy.ts             # Calls Meshy's image-to-3D API and downloads the resulting .glb
+        ├── hf.ts                # Calls TripoSR on Hugging Face Spaces (@gradio/client) and downloads the .glb
         └── upload.ts            # multer config (JPEG/PNG/WebP, 8MB limit)
 ```
 
@@ -101,7 +101,7 @@ Items always have a `photoUrl` (an uploaded file served by the API, or an extern
 [`render.yaml`](./render.yaml) is a Blueprint that provisions three resources: a Postgres database, the API as a Node web service, and the frontend as a static site with an SPA rewrite rule (required so client-side routes like `/item/:id` don't 404 on refresh).
 
 1. On [Render](https://dashboard.render.com), go to **New → Blueprint** and connect this repo.
-2. Render shows a preview of the three resources. You'll be prompted for the secret values marked `sync: false` in `render.yaml`: **`ADMIN_EMAIL`** and **`ADMIN_PASSWORD`** for the restaurant admin's login (pick a real password, it's what you'll use at `/admin/login`), and **`MESHY_API_KEY`** for AI 3D generation (optional — leave blank and add it later via the service's Environment tab if you don't have one yet; everything except "Generate 3D preview" works without it).
+2. Render shows a preview of the three resources. You'll be prompted for the secret values marked `sync: false` in `render.yaml`: **`ADMIN_EMAIL`** and **`ADMIN_PASSWORD`** for the restaurant admin's login (pick a real password, it's what you'll use at `/admin/login`), and **`HF_TOKEN`** for AI 3D generation (optional — leave blank and add it later via the service's Environment tab if you don't have one yet; everything except "Generate 3D preview" works without it).
 3. Click **Apply**. The database and API deploy first; the API's start command runs migrations and seeds the demo menu + admin account automatically on every deploy (safe — it's idempotent).
 4. `render.yaml` assumes the static site is named `plateview` and the API `plateview-api` (giving predictable URLs `https://plateview.onrender.com` / `https://plateview-api.onrender.com`, wired into `VITE_API_URL` and `CORS_ORIGIN`). If Render assigns different subdomains because those names are taken, update those two env vars to match and redeploy both services.
 5. The free Postgres and free web service plans are fine for trying this out, but confirm current limits/pricing on Render before relying on them (free databases are typically time-limited; free web services cold-start after inactivity).
