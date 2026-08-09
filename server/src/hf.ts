@@ -5,13 +5,14 @@ import { Client, handle_file } from '@gradio/client'
 // Not an official product/SLA, so this can be slower or occasionally
 // unavailable compared to a paid API.
 //
-// Calls /generate directly with the photo URL (matching the Space's own
-// "View API" example) rather than chaining /preprocess's output into it --
-// passing that intermediate object back in silently hung with zero events,
-// even though /preprocess itself completed in ~1s. Calling /generate
-// standalone with a fresh image reference completes in seconds, same as
-// using the Space's own web UI.
+// Runs the Space's own two-step pipeline: /preprocess (background removal)
+// then /generate. The real bug when this was first wired up wasn't the file
+// reference at all -- it was reusing the same Client/session across both
+// calls, which made /generate hang with zero events, ever. A fresh
+// Client.connect() for the /generate call fixes it; both steps together
+// take ~10-15s, same as the Space's own web UI.
 const SPACE = 'stabilityai/TripoSR'
+const FOREGROUND_RATIO = 0.85
 const MC_RESOLUTION = 256
 const GENERATION_TIMEOUT_MS = 3 * 60 * 1000
 
@@ -44,6 +45,17 @@ function apiToken(): string {
   return token
 }
 
+async function connect(): Promise<Client> {
+  const token = apiToken()
+  try {
+    return await Client.connect(SPACE, { token: token as `hf_${string}` })
+  } catch (err) {
+    throw new ModelGenerationError(
+      `Could not connect to the 3D generation service: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+}
+
 function extractFileUrl(value: unknown): string | undefined {
   if (!value || typeof value !== 'object') return undefined
   const v = value as Record<string, unknown>
@@ -58,19 +70,22 @@ export function generateModelFromImageUrl(imageUrl: string): Promise<Buffer> {
 }
 
 async function generate(imageUrl: string): Promise<Buffer> {
-  const token = apiToken()
+  const preprocessClient = await connect()
+  const preprocessed = await preprocessClient
+    .predict('/preprocess', [handle_file(imageUrl), true, FOREGROUND_RATIO])
+    .catch((err: unknown) => {
+      throw new ModelGenerationError(`Preprocessing step failed: ${err instanceof Error ? err.message : String(err)}`)
+    })
 
-  let client: Client
-  try {
-    client = await Client.connect(SPACE, { token: token as `hf_${string}` })
-  } catch (err) {
-    throw new ModelGenerationError(
-      `Could not connect to the 3D generation service: ${err instanceof Error ? err.message : String(err)}`,
-    )
+  const processedImageUrl = extractFileUrl((preprocessed.data as unknown[])?.[0])
+  if (!processedImageUrl) {
+    throw new ModelGenerationError('Preprocessing step returned no image')
   }
 
-  const generated = await client
-    .predict('/generate', [handle_file(imageUrl), MC_RESOLUTION])
+  // A fresh client is required here -- see the module comment above.
+  const generateClient = await connect()
+  const generated = await generateClient
+    .predict('/generate', [handle_file(processedImageUrl), MC_RESOLUTION])
     .catch((err: unknown) => {
       throw new ModelGenerationError(`Generation step failed: ${err instanceof Error ? err.message : String(err)}`)
     })
