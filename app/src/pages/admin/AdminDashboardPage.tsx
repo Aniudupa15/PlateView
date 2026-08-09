@@ -1,9 +1,18 @@
 import { Fragment, useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { MenuItem } from '../../data/menu'
-import { ApiError, createMenuItem, deleteMenuItem, fetchAdminMenu, updateMenuItem } from '../../api'
+import {
+  ApiError,
+  createMenuItem,
+  deleteMenuItem,
+  fetchAdminMenu,
+  generateModel,
+  updateMenuItem,
+  type MenuItemPatchFields,
+  type NewMenuItemFields,
+} from '../../api'
 import { clearAdminToken, getAdminToken } from '../../adminAuth'
-import { MenuItemForm, type MenuItemFormValues } from './MenuItemForm'
+import { MenuItemForm } from './MenuItemForm'
 
 export function AdminDashboardPage() {
   const navigate = useNavigate()
@@ -12,6 +21,8 @@ export function AdminDashboardPage() {
   const [error, setError] = useState<string | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [generatingId, setGeneratingId] = useState<string | null>(null)
+  const [generateError, setGenerateError] = useState<{ id: string; message: string } | null>(null)
 
   const load = useCallback(async () => {
     const token = getAdminToken()
@@ -44,22 +55,35 @@ export function AdminDashboardPage() {
     navigate('/admin/login', { replace: true })
   }
 
-  async function handleCreate(values: MenuItemFormValues) {
+  async function handleCreate(fields: NewMenuItemFields | MenuItemPatchFields, photo: File | null) {
     const token = getAdminToken()
-    if (!token) return
-    await createMenuItem(token, { ...values, modelUrl: values.modelUrl || undefined })
+    if (!token || !photo) return
+    await createMenuItem(token, fields as NewMenuItemFields, photo)
     setShowAddForm(false)
     await load()
   }
 
-  async function handleUpdate(id: string, values: MenuItemFormValues) {
+  async function handleUpdate(id: string, fields: NewMenuItemFields | MenuItemPatchFields, photo: File | null) {
     const token = getAdminToken()
     if (!token) return
-    const { id: _id, ...patch } = values
-    void _id
-    await updateMenuItem(token, id, { ...patch, modelUrl: patch.modelUrl || undefined })
+    await updateMenuItem(token, id, fields as MenuItemPatchFields, photo)
     setEditingId(null)
     await load()
+  }
+
+  async function handleGenerateModel(id: string) {
+    const token = getAdminToken()
+    if (!token) return
+    setGeneratingId(id)
+    setGenerateError(null)
+    try {
+      await generateModel(token, id)
+      await load()
+    } catch {
+      setGenerateError({ id, message: 'Could not generate a 3D preview. Try again in a moment.' })
+    } finally {
+      setGeneratingId(null)
+    }
   }
 
   async function handleToggleAvailable(item: MenuItem) {
@@ -135,6 +159,7 @@ export function AdminDashboardPage() {
                       className="admin-link-button"
                       onClick={() => {
                         setShowAddForm(false)
+                        setGenerateError(null)
                         setEditingId(editingId === item.id ? null : item.id)
                       }}
                     >
@@ -159,7 +184,10 @@ export function AdminDashboardPage() {
                         <MenuItemForm
                           initial={item}
                           submitLabel="Save changes"
-                          onSubmit={(values) => handleUpdate(item.id, values)}
+                          onSubmit={(fields, photo) => handleUpdate(item.id, fields, photo)}
+                          onGenerateModel={() => handleGenerateModel(item.id)}
+                          generating={generatingId === item.id}
+                          generateError={generateError?.id === item.id ? generateError.message : null}
                           onCancel={() => setEditingId(null)}
                         />
                       </div>

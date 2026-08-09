@@ -12,9 +12,10 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const isFormData = options.body instanceof FormData
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers: { ...(isFormData ? {} : { 'Content-Type': 'application/json' }), ...options.headers },
   })
 
   if (!res.ok) {
@@ -45,29 +46,47 @@ export function fetchAdminMenu(token: string): Promise<MenuItem[]> {
   return request('/api/admin/menu', { headers: authHeaders(token) })
 }
 
-export function createMenuItem(token: string, item: MenuItem): Promise<MenuItem> {
+export type NewMenuItemFields = Omit<MenuItem, 'photoUrl' | 'modelUrl'>
+export type MenuItemPatchFields = Partial<Omit<MenuItem, 'id' | 'photoUrl' | 'modelUrl'>>
+
+function itemFormData(fields: NewMenuItemFields | MenuItemPatchFields, photo: File | null): FormData {
+  const form = new FormData()
+  form.set('data', JSON.stringify(fields))
+  if (photo) form.set('photo', photo)
+  return form
+}
+
+export function createMenuItem(token: string, fields: NewMenuItemFields, photo: File): Promise<MenuItem> {
   return request('/api/admin/menu', {
     method: 'POST',
     headers: authHeaders(token),
-    body: JSON.stringify(item),
+    body: itemFormData(fields, photo),
   })
 }
 
 export function updateMenuItem(
   token: string,
   id: string,
-  patch: Partial<Omit<MenuItem, 'id'>>,
+  fields: MenuItemPatchFields,
+  photo?: File | null,
 ): Promise<MenuItem> {
   return request(`/api/admin/menu/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: authHeaders(token),
-    body: JSON.stringify(patch),
+    body: itemFormData(fields, photo ?? null),
   })
 }
 
 export function deleteMenuItem(token: string, id: string): Promise<void> {
   return request(`/api/admin/menu/${encodeURIComponent(id)}`, {
     method: 'DELETE',
+    headers: authHeaders(token),
+  })
+}
+
+export function generateModel(token: string, id: string): Promise<MenuItem> {
+  return request(`/api/admin/menu/${encodeURIComponent(id)}/generate-model`, {
+    method: 'POST',
     headers: authHeaders(token),
   })
 }

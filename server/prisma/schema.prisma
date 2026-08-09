@@ -25,7 +25,10 @@ model MenuItem {
   allergens       String[]
   spiceLevel      Int
   photoUrl        String
+  photoData       Bytes?
+  photoMimeType   String?
   modelUrl        String?
+  modelData       Bytes?
   available       Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

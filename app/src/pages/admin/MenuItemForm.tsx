@@ -1,5 +1,7 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { ALL_ALLERGENS, CATEGORIES, DIETARY_TAGS, type DietaryTag, type MenuItem, type SpiceLevel } from '../../data/menu'
+import { ArViewer } from '../../components/ArViewer'
+import type { MenuItemPatchFields, NewMenuItemFields } from '../../api'
 
 const SPICE_OPTIONS: { value: SpiceLevel; label: string }[] = [
   { value: 0, label: 'None' },
@@ -8,16 +10,19 @@ const SPICE_OPTIONS: { value: SpiceLevel; label: string }[] = [
   { value: 3, label: 'Hot' },
 ]
 
-export type MenuItemFormValues = Omit<MenuItem, 'modelUrl'> & { modelUrl: string }
+type FieldValues = Omit<NewMenuItemFields, 'id'> & { id: string }
 
 interface MenuItemFormProps {
   initial?: MenuItem
   submitLabel: string
-  onSubmit: (values: MenuItemFormValues) => Promise<void>
+  onSubmit: (fields: NewMenuItemFields | MenuItemPatchFields, photo: File | null) => Promise<void>
+  onGenerateModel?: () => Promise<void>
+  generating?: boolean
+  generateError?: string | null
   onCancel?: () => void
 }
 
-function emptyValues(): MenuItemFormValues {
+function emptyValues(): FieldValues {
   return {
     id: '',
     name: '',
@@ -28,19 +33,32 @@ function emptyValues(): MenuItemFormValues {
     dietaryTags: [],
     allergens: [],
     spiceLevel: 0,
-    photoUrl: '',
-    modelUrl: '',
     available: true,
   }
 }
 
-export function MenuItemForm({ initial, submitLabel, onSubmit, onCancel }: MenuItemFormProps) {
-  const [values, setValues] = useState<MenuItemFormValues>(
-    initial ? { ...initial, modelUrl: initial.modelUrl ?? '' } : emptyValues(),
-  )
+export function MenuItemForm({
+  initial,
+  submitLabel,
+  onSubmit,
+  onGenerateModel,
+  generating,
+  generateError,
+  onCancel,
+}: MenuItemFormProps) {
+  const [values, setValues] = useState<FieldValues>(initial ?? emptyValues())
+  const [photo, setPhoto] = useState<File | null>(null)
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const isEdit = Boolean(initial)
+
+  useEffect(() => {
+    if (!photo) return
+    const url = URL.createObjectURL(photo)
+    setPhotoPreviewUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [photo])
 
   function toggleDietary(tag: DietaryTag) {
     setValues((v) => ({
@@ -59,15 +77,24 @@ export function MenuItemForm({ initial, submitLabel, onSubmit, onCancel }: MenuI
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
+
+    if (!isEdit && !photo) {
+      setError('A photo is required.')
+      return
+    }
+
     setSubmitting(true)
     try {
-      await onSubmit(values)
+      const { id, ...rest } = values
+      await onSubmit(isEdit ? rest : { id, ...rest }, photo)
     } catch {
       setError('Could not save this item. Check the fields and try again.')
     } finally {
       setSubmitting(false)
     }
   }
+
+  const displayedPhoto = photoPreviewUrl ?? initial?.photoUrl ?? null
 
   return (
     <form onSubmit={handleSubmit} className="admin-form">
@@ -177,26 +204,38 @@ export function MenuItemForm({ initial, submitLabel, onSubmit, onCancel }: MenuI
       </fieldset>
 
       <label>
-        Photo URL
+        Photo {!isEdit && '(required)'}
         <input
-          type="url"
-          required
-          value={values.photoUrl}
-          onChange={(e) => setValues((v) => ({ ...v, photoUrl: e.target.value }))}
-          placeholder="https://…"
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          required={!isEdit}
+          onChange={(e) => setPhoto(e.target.files?.[0] ?? null)}
         />
+        <span className="admin-hint">JPEG, PNG, or WebP, up to 8MB.</span>
       </label>
+      {displayedPhoto && <img src={displayedPhoto} alt="" className="admin-photo-preview" />}
 
-      <label>
-        3D model URL (.glb) — optional
-        <input
-          type="url"
-          value={values.modelUrl}
-          onChange={(e) => setValues((v) => ({ ...v, modelUrl: e.target.value }))}
-          placeholder="https://…/dish.glb"
-        />
-        <span className="admin-hint">Leave blank to show the photo instead of an AR/3D preview.</span>
-      </label>
+      {isEdit && (
+        <div className="admin-3d-section">
+          <span className="admin-3d-label">AR / 3D preview</span>
+          {initial?.modelUrl ? (
+            <ArViewer modelUrl={initial.modelUrl} posterUrl={initial.photoUrl} alt={initial.name} />
+          ) : (
+            <p className="admin-hint">No 3D preview yet — generate one from the current photo.</p>
+          )}
+          {onGenerateModel && (
+            <button
+              type="button"
+              className="admin-button admin-button-secondary"
+              onClick={onGenerateModel}
+              disabled={generating}
+            >
+              {generating ? 'Generating… (can take up to a couple minutes)' : 'Generate 3D preview from photo'}
+            </button>
+          )}
+          {generateError && <p className="admin-error">{generateError}</p>}
+        </div>
+      )}
 
       {isEdit && (
         <label className="admin-checkbox">

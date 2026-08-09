@@ -39,3 +39,5 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+      - key: REPLICATE_API_TOKEN
+        sync: false

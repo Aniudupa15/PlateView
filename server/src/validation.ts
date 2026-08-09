@@ -14,8 +14,6 @@ const menuItemFields = {
   dietaryTags: z.array(z.enum(DIETARY_TAGS)),
   allergens: z.array(z.string().trim().min(1)),
   spiceLevel: z.number().int().min(0).max(3),
-  photoUrl: z.url(),
-  modelUrl: z.union([z.url(), z.literal('')]).optional(),
   available: z.boolean(),
 }
 
